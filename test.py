@@ -29,7 +29,6 @@ def get_random_user_agent():
     return random.choice(user_agents)
 
 def extract_product_info(product):
-    """Extract product details from the product element."""
     name = product.query_selector(Selectors.NAME_OF_ITEM).inner_text() if product.query_selector(Selectors.NAME_OF_ITEM) else "No Name"
     rating = product.query_selector(Selectors.RATING_OF_ITEM).get_attribute("aria-label") if product.query_selector(Selectors.RATING_OF_ITEM) else "No Rating"
     price = product.query_selector(Selectors.PRICE_OF_ITEM).inner_text() if product.query_selector(Selectors.PRICE_OF_ITEM) else "No Price"
@@ -44,9 +43,9 @@ def extract_product_info(product):
         "price": price,
     }
 
-def save_data_to_csv(products, category, subcategory):
+def save_data_to_csv(products, category, subcategory,brand_name):
     """Save scraped product data to a CSV file."""
-    directory = f"data/{category}/{subcategory}"
+    directory = f"data/{category}/{subcategory}/{brand_name}"
     os.makedirs(directory, exist_ok=True)
     
     csv_file = f"{directory}/products.csv"
@@ -64,10 +63,12 @@ def extract_category_and_subcategory(page):
 
     subcategory_element = page.query_selector(Selectors.SUB_CATEGORY)
     subcategory = subcategory_element.inner_text() if subcategory_element else "Unknown Subcategory"
+
     
     category = re.sub(r'\s+', ' ', category).strip()
     subcategory = re.sub(r'\s+', ' ', subcategory).strip()
     
+
     return category, subcategory
 
 def navigate_to_category(page):
@@ -92,13 +93,18 @@ def navigate_to_subcategory(page):
 
 def navigate_to_brand_page(page, brand_link):
     """Navigate to a specific brand's page."""
-    href = brand_link.get_attribute('href')
-    if href:
-        logging.info(f"Navigating to brand page: {href}")
-        brand_link.click()
-        time.sleep(random.uniform(5, 10))
+    try:
+        if brand_link.is_visible() and brand_link.is_enabled():
+            href = brand_link.get_attribute('href')
+            if href:
+                logging.info(f"Navigating to brand page: {href}")
+                brand_link.click()
+                time.sleep(random.uniform(5, 10))
+    except Exception as e:
+        logging.error(f"Error navigating to brand page: {e}")
 
-def scrape_brand_products(page, category_name, subcategory_name, scraped_products):
+
+def scrape_brand_products(page, category_name, subcategory_name, scraped_products,brand_name):
     """Scrape all products for a specific brand's page."""
     brand_products = []
     while True:
@@ -123,7 +129,7 @@ def scrape_brand_products(page, category_name, subcategory_name, scraped_product
             logging.info(f"Scraped product: {product_info}")
 
         # Save brand-specific data
-        save_data_to_csv(brand_products, category_name, subcategory_name)
+        save_data_to_csv(brand_products, category_name, subcategory_name,brand_name)
         brand_products = []
 
         # Check if there's a "Next" button for pagination
@@ -156,36 +162,53 @@ def scrape_all_brands(page, category_name, subcategory_name, scraped_products):
     brand_listing_url = page.url
     logging.info(f"Brand Listing URL: {brand_listing_url}")
 
-    # Re-query brand links after navigating to the brand listing URL
-    page.wait_for_selector(Selectors.ALL_BRANDS, timeout=60000)  # Ensure the brand links are loaded
-    brand_links = page.query_selector_all(Selectors.ALL_BRANDS)
-    
-    if not brand_links:
-        logging.error("No brand links found on the brand listing page.")
-        return
+    # Track the index of the current brand being processed
+    current_brand_index = 0
 
-    for i, brand_link in enumerate(brand_links):
-        try:
-            # Ensure the link is valid by querying it again after waiting for the page to load
-            logging.info(f"Navigating to brand page {i+1}")
-            page.wait_for_selector(Selectors.BRAND_LINK, timeout=60000)  # Wait for a brand link to be visible
-            navigate_to_brand_page(page, brand_link)
+    while True:
+        # Navigate back to the brand listing page and re-fetch the brand links
+        page.goto(brand_listing_url, timeout=60000)
+        page.wait_for_selector(Selectors.ALL_BRANDS, timeout=60000)
+        
+        # Retrieve brand links after navigating back to the listing page
+        brand_links = page.query_selector_all(Selectors.ALL_BRANDS)
+        if not brand_links:
+            logging.error("No brand links found on the brand listing page.")
+            break
 
-            # After navigation, wait for products to load
-            scrape_brand_products(page, category_name, subcategory_name, scraped_products)
+        # Iterate starting from the current brand index
+        for i in range(current_brand_index, len(brand_links)):
+            brand_link = brand_links[i]
+            try:
+                # Extract the brand name from the 'alt' attribute of the image inside the anchor tag
+                brand_img = brand_link.query_selector("img")
+                brand_name = brand_img.get_attribute("alt") if brand_img else None
+                
+                # If alt attribute is missing or empty, fallback to using the inner text or href
+                if not brand_name:
+                    brand_name = brand_link.inner_text().strip()  # fallback to inner text
+                if not brand_name:
+                    brand_name = brand_link.get_attribute("href").split('/')[-1] if brand_link.get_attribute("href") else f"Brand_{i+1}"
 
-            # After scraping the brand, navigate directly back to the brand list page using the brand_listing_url
-            go_back_to_brands_page(page, brand_listing_url)
+                logging.info(f"Processing brand Name: {brand_name}")
+                logging.info(f"Navigating to brand page {i + 1}")
+                navigate_to_brand_page(page, brand_link)
+                scrape_brand_products(page, category_name, subcategory_name, scraped_products,brand_name)
 
-            # Re-query brand links after going back to ensure we're working with the updated page
-            page.wait_for_selector(Selectors.ALL_BRANDS, timeout=60000)
-            brand_links = page.query_selector_all(Selectors.ALL_BRANDS)
-            if not brand_links:
-                logging.error("Brand links not found after returning to the brand listing page.")
-                break
+                # After scraping, increment the index and go back to the brand list
+                current_brand_index = i + 1  # Move to the next brand
+                go_back_to_brands_page(page, brand_listing_url)
+                break  # Break to re-fetch brand links with the updated page
 
-        except Exception as e:
-            logging.error(f"An error occurred while processing brand {i+1}: {e}")
+            except Exception as e:
+                logging.error(f"An error occurred while processing brand {i + 1}: {e}")
+                continue  # Continue to the next brand in case of an error
+
+        # If we reach the end of the list, exit the loop
+        if current_brand_index >= len(brand_links):
+            logging.info("All brands have been processed.")
+            break
+
 
 def scrape_amazon_bestsellers(url):
     """Main function to scrape Amazon bestsellers."""
