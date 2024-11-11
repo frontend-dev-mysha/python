@@ -8,10 +8,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 class Selectors:
     MAIN_CATEGORY_LINK = "a[href='/electronics/b/?ie=UTF8&node=976419031&ref_=nav_cs_electronics']"
     ALL_SUBCATEGORIES = "#sobe_d_b_ms_7-carousel-viewport .sl-sobe-carousel-viewport-row ol.sl-sobe-carousel-viewport-row-inner li.sl-sobe-carousel-sub-card a"
-    ALL_BRANDS_1 = "#sobe_d_b_ms_4-carousel-viewport .sl-sobe-carousel-viewport-row ol.sl-sobe-carousel-viewport-row-inner li.sl-sobe-carousel-sub-card a"
-    ALL_BRANDS_2 = "#sobe_d_b_ms_8-carousel-viewport .sl-sobe-carousel-viewport-row ol.sl-sobe-carousel-viewport-row-inner li.sl-sobe-carousel-sub-card a"
-    ALL_BRANDS_3 = "#sobe_d_b_ms_14-carousel-viewport .sl-sobe-carousel-viewport-row ol.sl-sobe-carousel-viewport-row-inner li.sl-sobe-carousel-sub-card a"
-    ALL_BRANDS_4 = "#sobe_d_b_ms_8-carousel-viewport .sl-sobe-carousel-viewport-row ol.sl-sobe-carousel-viewport-row-inner li.sl-sobe-carousel-sub-card a"
+    ALL_BRANDS = [
+        "#sobe_d_b_ms_4-carousel-viewport .sl-sobe-carousel-viewport-row ol.sl-sobe-carousel-viewport-row-inner li.sl-sobe-carousel-sub-card a",
+        "#sobe_d_b_ms_8-carousel-viewport .sl-sobe-carousel-viewport-row ol.sl-sobe-carousel-viewport-row-inner li.sl-sobe-carousel-sub-card a",
+        "#sobe_d_b_ms_14-carousel-viewport .sl-sobe-carousel-viewport-row ol.sl-sobe-carousel-viewport-row-inner li.sl-sobe-carousel-sub-card a"
+    ]
 
 def get_random_user_agent():
     user_agents = [
@@ -37,49 +38,35 @@ def navigate_to_brand(page, brand,index):
     time.sleep(random.uniform(2, 5)) 
     
 def scrape_all_brands(page):
-    # List of selectors for the brand sections
-    brand_selectors = [
-        Selectors.ALL_BRANDS_1,
-        Selectors.ALL_BRANDS_2,
-        Selectors.ALL_BRANDS_3,
-        Selectors.ALL_BRANDS_4
-    ]
-    
-    # Iterate over the selectors and scrape brands from each section
-    for selector in brand_selectors:
-        # Get all brands from the current selector
+    for selector in Selectors.ALL_BRANDS:
         all_brands = page.query_selector_all(selector)
-        
         if not all_brands:
             logging.warning(f"No brands found for selector {selector}.")
             continue
 
         logging.info(f"Found {len(all_brands)} brands using selector {selector}.")
         
-        # Iterate through each brand in the current list
-        for index, brand in enumerate(all_brands):
+        for index in range(len(all_brands)):
+            # Re-fetch the list of brands before interacting with each brand
+            all_brands = page.query_selector_all(selector)  # Re-query after navigating back
+            brand = all_brands[index]
+            
             # Navigate to the brand page
             navigate_to_brand(page, brand, index)
             
             # Go back to the subcategory overview page after processing
             page.go_back()
-            
+
             # Wait for the page to reload and ensure the DOM is stable
-            # Wait until the selector (brands list) is visible again, indicating page has loaded
             page.wait_for_selector(selector, state='visible')
-            
-            # Add a short delay to make sure the page is stable
-            time.sleep(random.uniform(3, 5))  # Sleep to allow the page to reload
-            
-            # Re-query the brand list to get fresh element handles
+            time.sleep(random.uniform(3, 5))  # Allow time for page to reload
+
+            # After going back, re-query the brand list to ensure we're working with fresh elements
             all_brands = page.query_selector_all(selector)
             
-            # Safely select the brand and click it
-            try:
-                brand = all_brands[index]  # Re-fetch the element
-                brand.click()  # Perform the click
-            except Exception as e:
-                logging.error(f"Error while interacting with brand {index}: {e}")
+            # Log the navigation
+            logging.info(f"Back from brand {index}, proceeding to next brand.")
+
 
 def navigate_to_subcategory(page, sub_category, index):
     sub_category.click()
