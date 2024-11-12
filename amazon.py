@@ -160,17 +160,38 @@ def scrape_all_brands(page, scraped_products):
         except Exception as e:
             logging.error(f"An error occurred while processing brands for selector {selector}: {e}")
 
-def navigate_to_subcategory(page, sub_category, index, scraped_products):
+def go_back_to_sub_category_page(page, sub_category_listing_url):
+    logging.info("Returning to the subcategory listing after scraping products.")
+    try:
+        # Navigate directly to the subcategory listing page
+        logging.info(f"Navigating back to the subcategory listing URL: {sub_category_listing_url}")
+        page.goto(sub_category_listing_url, timeout=60000) 
+        page.wait_for_selector(Selectors.ALL_SUBCATEGORIES[0], timeout=60000)  # Wait for the subcategory selector
+        logging.info("Successfully returned to the subcategory listing page.")
+    except TimeoutError:
+        logging.error("Timeout while navigating back to the subcategory listing page.")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred while returning to the subcategory listing page: {e}")
+
+def navigate_to_subcategory(page, sub_category, index, scraped_products, sub_category_listing_url):
     sub_category.click()
     time.sleep(random.uniform(3, 5))  # Wait for the subcategory to load
     page.wait_for_load_state("load", timeout=60000)
     time.sleep(random.uniform(2, 5)) 
-    
+
     # Now scrape brands for this subcategory
-    scrape_all_brands(page,scraped_products)
+    scrape_all_brands(page, scraped_products)
     time.sleep(random.uniform(2, 5))
 
-def scrap_all_sub_categories(page,scraped_products):
+    logging.info(f"Returning to the subcategory page after scraping brands for subcategory {index}.")
+    page.go_back()
+    time.sleep(random.uniform(3, 5))  # Allow time for the page to reload
+    
+    # Refresh the list of subcategories after going back to ensure it's up to date
+    go_back_to_sub_category_page(page, sub_category_listing_url)
+    time.sleep(random.uniform(2, 5))  # Wait to ensure it's refreshed before processing the next subcategory
+
+def scrap_all_sub_categories(page, scraped_products):
     # Get all subcategories listed in the main category
     all_sub_categories = page.query_selector_all(Selectors.ALL_SUBCATEGORIES)
     if not all_sub_categories:
@@ -179,18 +200,19 @@ def scrap_all_sub_categories(page,scraped_products):
 
     logging.info(f"Found {len(all_sub_categories)} subcategories.")
     
+    # Save the current URL of the subcategory listing page to return later
+    sub_category_listing_url = page.url
+    
     # Iterate through each subcategory
     for index in range(len(all_sub_categories)):
         sub_category = all_sub_categories[index]
         
-        # Navigate to the subcategory page
-        navigate_to_subcategory(page, sub_category, index,scraped_products)
+        # Navigate to the subcategory page and scrape brands
+        navigate_to_subcategory(page, sub_category, index, scraped_products, sub_category_listing_url)
 
-        # Go back to the subcategory overview page after processing
-        page.go_back()
         time.sleep(random.uniform(3, 5))  # Allow time for the page to reload
         
-        # Refresh the list of subcategories after going back to ensure it's up to date
+        # Re-fetch the subcategory list to ensure we're up to date for the next iteration
         all_sub_categories = page.query_selector_all(Selectors.ALL_SUBCATEGORIES)
 
 def scrape_amazon_bestsellers(url):
